@@ -78,9 +78,7 @@ int buffer_meth_send(lua_State *L, p_buffer buf) {
     const char *data = luaL_checklstring(L, 2, &size);
     long start = (long) luaL_optnumber(L, 3, 1);
     long end = (long) luaL_optnumber(L, 4, -1);
-#ifdef LUASOCKET_DEBUG
-    p_timeout tm = timeout_markstart(buf->tm);
-#endif
+    timeout_markstart(buf->tm);
     if (start < 0) start = (long) (size+start+1);
     if (end < 0) end = (long) (size+end+1);
     if (start < 1) start = (long) 1;
@@ -96,10 +94,6 @@ int buffer_meth_send(lua_State *L, p_buffer buf) {
         lua_pushnil(L);
         lua_pushnil(L);
     }
-#ifdef LUASOCKET_DEBUG
-    /* push time elapsed during operation as the last return value */
-    lua_pushnumber(L, timeout_gettime() - timeout_getstart(tm));
-#endif
     return lua_gettop(L) - top;
 }
 
@@ -111,9 +105,7 @@ int buffer_meth_receive(lua_State *L, p_buffer buf) {
     luaL_Buffer b;
     size_t size;
     const char *part = luaL_optlstring(L, 3, "", &size);
-#ifdef LUASOCKET_DEBUG
-    p_timeout tm = timeout_markstart(buf->tm);
-#endif
+    timeout_markstart(buf->tm);
     /* initialize buffer with optional extra prefix 
      * (useful for concatenating previous partial results) */
     luaL_buffinit(L, &b);
@@ -147,10 +139,6 @@ int buffer_meth_receive(lua_State *L, p_buffer buf) {
         lua_pushnil(L);
         lua_pushnil(L);
     }
-#ifdef LUASOCKET_DEBUG
-    /* push time elapsed during operation as the last return value */
-    lua_pushnumber(L, timeout_gettime() - timeout_getstart(tm));
-#endif
     return lua_gettop(L) - top;
 }
 
