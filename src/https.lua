@@ -117,12 +117,13 @@ local function request(url, body)
   local stringrequest = type(url) == "string"
   if stringrequest then
     url = urlstring_totable(url, body, result_table)
+    url.redirect = false
   else
     url.url = default_https_port(url.url)
   end
   if http.PROXY or url.proxy then
     return nil, "proxy not supported"
-  elseif url.redirect then
+  elseif url.redirect ~= false then
     return nil, "redirect not supported"
   elseif url.create then
     return nil, "create function not permitted"
