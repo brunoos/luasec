@@ -311,8 +311,12 @@ static int meth_create(lua_State *L)
   SSL_set_mode(ssl->ssl, SSL_MODE_RELEASE_BUFFERS);
   if (mode == LSEC_MODE_SERVER)
     SSL_set_accept_state(ssl->ssl);
-  else
+  else {
     SSL_set_connect_state(ssl->ssl);
+#ifdef SSL_MODE_CBC_RECORD_SPLITTING
+    SSL_set_mode(ssl->ssl, SSL_MODE_CBC_RECORD_SPLITTING);
+#endif
+  }
 
   io_init(&ssl->io, (p_send)ssl_send, (p_recv)ssl_recv, 
     (p_error) ssl_ioerror, ssl);
