@@ -176,6 +176,10 @@ local function newcontext(cfg)
       succ, msg = context.locations(ctx, cfg.cafile, cfg.capath)
       if not succ then return nil, msg end
    end
+   if cfg.cadata then
+      succ, msg = context.cadata(ctx, cfg.cadata)
+      if not succ then return nil, msg end
+   end
    -- Set SSL ciphers
    if cfg.ciphers then
       succ, msg = context.setcipher(ctx, cfg.ciphers)

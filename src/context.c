@@ -7,6 +7,7 @@
  *--------------------------------------------------------------------------*/
 
 #include <string.h>
+#include <stdbool.h>
 
 #if defined(WIN32)
 #include <windows.h>
@@ -364,6 +365,125 @@ static int load_locations(lua_State *L)
       ERR_reason_error_string(ERR_get_error()));
     return 2;
   }
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+/**
+ * Load a CA certificate bundle from a string.
+ */
+static int load_cadata(lua_State *L)
+{
+  SSL_CTX *ctx = lsec_checkcontext(L, 1);
+  size_t len;
+  const char *cadata = luaL_checklstring(L, 2, &len);
+  X509_STORE *store = SSL_CTX_get_cert_store(ctx);
+  if (!store)
+  {
+    lua_pushboolean(L, 0);
+    lua_pushliteral(L, "error loading CA data (no X509 store)");
+    return 2;
+  }
+
+  BIO *bio = BIO_new_mem_buf(cadata, (int)len);
+  if (!bio)
+  {
+    lua_pushboolean(L, 0);
+    lua_pushliteral(L, "error loading CA data (failed to load string into memory)");
+    return 2;
+  }
+
+  X509 *cert = NULL;
+  bool loaded = false;
+  unsigned long err;
+
+  ERR_clear_error();
+  while ((cert = PEM_read_bio_X509_AUX(bio, NULL, 0, NULL)) != NULL)
+  {
+    if (!X509_STORE_add_cert(store, cert))
+    {
+      err = ERR_get_error();
+      if (ERR_GET_REASON(err) != X509_R_CERT_ALREADY_IN_HASH_TABLE)
+      {
+        X509_free(cert);
+        BIO_free(bio);
+        lua_pushboolean(L, 0);
+        lua_pushfstring(L, "error loading CA data (%s)",
+          ERR_reason_error_string(err));
+        return 2;
+      }
+    }
+    loaded = true;
+    X509_free(cert);
+    ERR_clear_error();
+  }
+
+  err = ERR_peek_last_error();
+  // If everything went as planned:
+  // - at least one certificate was loaded,
+  // - the last error is in the PEM library, and
+  // - the error is that there wasn't another certificate in the buffer
+  if (!(loaded && ERR_GET_LIB(err) == ERR_LIB_PEM &&
+        ERR_GET_REASON(err) == PEM_R_NO_START_LINE))
+  {
+    lua_pushboolean(L, 0);
+    if (!loaded)
+    {
+      lua_pushliteral(L, "error loading CA data (no certificates found)");
+    }
+    else
+    {
+      lua_pushfstring(L, "error loading CA data (%s)",
+        ERR_reason_error_string(ERR_get_error()));
+    }
+    BIO_free(bio);
+    return 2;
+  }
+  ERR_clear_error();
+
+  if (!BIO_reset(bio))
+  {
+    lua_pushboolean(L, 0);
+    lua_pushliteral(L, "error loading CA data (BIO reset failed)");
+    BIO_free(bio);
+    return 2;
+  }
+
+  X509_CRL *crl = NULL;
+
+  while ((crl = PEM_read_bio_X509_CRL(bio, NULL, 0, NULL)) != NULL)
+  {
+    if (!X509_STORE_add_crl(store, crl))
+    {
+      err = ERR_get_error();
+      if (ERR_GET_REASON(err) != X509_R_CERT_ALREADY_IN_HASH_TABLE)
+      {
+        X509_CRL_free(crl);
+        BIO_free(bio);
+        lua_pushboolean(L, 0);
+        lua_pushfstring(L, "error loading CA data (%s)",
+            ERR_reason_error_string(err));
+        return 2;
+      }
+    }
+    X509_CRL_free(crl);
+    ERR_clear_error();
+  }
+
+  BIO_free(bio);
+
+  err = ERR_peek_last_error();
+  // Some bundles don't have CRLs, so only check that the error is what we
+  // expect.
+  if (!(ERR_GET_LIB(err) == ERR_LIB_PEM && ERR_GET_REASON(err) == PEM_R_NO_START_LINE))
+  {
+    lua_pushboolean(L, 0);
+    lua_pushfstring(L, "error loading CA data (%s)",
+        ERR_reason_error_string(ERR_get_error()));
+    return 2;
+  }
+  ERR_clear_error();
+
   lua_pushboolean(L, 1);
   return 1;
 }
@@ -884,6 +1004,7 @@ static int set_dane(lua_State *L)
 static luaL_Reg funcs[] = {
   {"create",          create},
   {"locations",       load_locations},
+  {"cadata",          load_cadata},
   {"loadcert",        load_cert},
   {"loadkey",         load_key},
   {"checkkey",        check_key},
