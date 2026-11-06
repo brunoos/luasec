@@ -15,9 +15,9 @@ local params01 = {
 local params02 = {
   mode = "server",
   protocol = "any",
-  key = "../certs/serverAAkey.pem",
-  certificate = "../certs/serverAA.pem",
-  cafile = "../certs/rootA.pem",
+  key = "../certs/serverBkey.pem",
+  certificate = "../certs/serverB.pem",
+  cafile = "../certs/rootB.pem",
   verify = "none",
   options = "all",
   ciphers = "ALL:!ADH:@STRENGTH",
@@ -40,8 +40,8 @@ conn = ssl.wrap(conn, ctx01)
 
 -- Configure the name map
 local sni_map = {
-  ["servera.br"]  = ctx01,
-  ["serveraa.br"] = ctx02,
+  ["servera.br"] = ctx01,
+  ["serverb.br"] = ctx02,
 }
 
 conn:sni(sni_map, true)
