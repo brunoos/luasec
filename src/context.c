@@ -667,7 +667,7 @@ static int alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 
   if (!lua_isstring(L, -1)) {
     lua_pop(L, 2);
-    return SSL_TLSEXT_ERR_NOACK;
+    return SSL_TLSEXT_ERR_ALERT_FATAL;
   }
 
   // Protocol list from server in wire-format string
@@ -676,7 +676,7 @@ static int alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
                                server_len, in, inlen);
   if (ret != OPENSSL_NPN_NEGOTIATED) {
     lua_pop(L, 2);
-    return SSL_TLSEXT_ERR_NOACK;
+    return SSL_TLSEXT_ERR_ALERT_FATAL;
   } 
 
   // Copy the result because lua_pop() can collect the pointer
