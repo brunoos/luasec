@@ -70,6 +70,81 @@ local function reg(conn)
    end
 end
 
+-- Format the host and port used by an HTTP CONNECT request.
+local function proxy_authority(host, port)
+   host = tostring(host):gsub("^%[(.*)%]$", "%1")
+   if host:find(":", 1, true) then
+      host = "[" .. host .. "]"
+   end
+   return host .. ":" .. tostring(port)
+end
+
+-- Send a CONNECT request and consume its complete response header block.
+local function connect_proxy(sock, tunnel)
+   local authority = proxy_authority(tunnel.host, tunnel.port)
+   local request = "CONNECT " .. authority .. " HTTP/1.1\r\n"
+      .. "Host: " .. authority .. "\r\n"
+   if tunnel.user ~= nil then
+      local credentials = tunnel.user .. ":" .. (tunnel.password or "")
+      local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+      local encoded = credentials:gsub(".", function (character)
+         local byte = string.byte(character)
+         local bits = ""
+         for shift = 7, 0, -1 do
+            bits = bits .. (byte % (2 ^ (shift + 1)) - byte % (2 ^ shift) > 0 and "1" or "0")
+         end
+         return bits
+      end) .. string.rep("0", (6 - (#credentials * 8) % 6) % 6)
+      encoded = encoded:gsub("%d%d%d%d%d%d", function (bits)
+         local value = 0
+         for index = 1, 6 do
+            value = value * 2 + (bits:sub(index, index) == "1" and 1 or 0)
+         end
+         return alphabet:sub(value + 1, value + 1)
+      end)
+      local remainder = #credentials % 3
+      encoded = encoded .. (remainder == 1 and "==" or remainder == 2 and "=" or "")
+      request = request .. "Proxy-Authorization: Basic " .. encoded .. "\r\n"
+   end
+   request = request .. "\r\n"
+
+   local sent, send_error = sock:send(request)
+   if not sent or send_error then
+      sock:close()
+      return nil, send_error
+   end
+
+   local status, receive_error = sock:receive("*l")
+   if not status or receive_error then
+      sock:close()
+      return nil, receive_error
+   end
+   status = status:gsub("\r$", "")
+
+   while true do
+      local header, header_error = sock:receive("*l")
+      if not header or header_error then
+         sock:close()
+         return nil, header_error
+      end
+      header = header:gsub("\r$", "")
+      if header == "" then
+         break
+      end
+   end
+
+   local code = status:match("^HTTP/%d+%.%d+%s+(%d%d%d)")
+   if not code then
+      sock:close()
+      return nil, status
+   end
+   if tonumber(code) < 200 or tonumber(code) >= 300 then
+      sock:close()
+      return nil, "proxy CONNECT failed: " .. status
+   end
+   return true
+end
+
 -- Return a function which performs the SSL/TLS connection.
 local function tcp(params)
    params = params or {}
@@ -90,8 +165,12 @@ local function tcp(params)
       -- Replace TCP's connection function
       function conn:connect(host, port)
          try(self.sock:connect(host, port))
+         local tunnel = params.proxy_tunnel
+         if tunnel then
+            try(connect_proxy(self.sock, tunnel))
+         end
          self.sock = try(ssl.wrap(self.sock, params))
-         self.sock:sni(host)
+         self.sock:sni(tunnel and tunnel.host or host)
          self.sock:settimeout(_M.TIMEOUT)
          try(self.sock:dohandshake())
          reg(self)
