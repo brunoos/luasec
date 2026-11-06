@@ -74,9 +74,12 @@ local system_ca
 -- Probes for a usable system CA value. Does not touch the cache.
 --
 local find_system_ca do
+   local is_windows = package.config:sub(1, 1) == "\\"
 
    -- Known CA bundle locations to probe, in order.
-   local ca_bundle_paths = {
+   local ca_bundle_paths = is_windows and {
+      [[C:\Program Files\Git\usr\ssl\cert.pem]], -- Git for Windows
+   } or {
       "/etc/ssl/certs/ca-certificates.crt",                 -- Debian / Ubuntu / Gentoo
       "/etc/pki/tls/certs/ca-bundle.crt",                   -- Fedora / RHEL 6
       "/etc/ssl/ca-bundle.pem",                             -- OpenSUSE
