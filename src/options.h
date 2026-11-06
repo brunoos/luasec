@@ -17,6 +17,6 @@ struct lsec_ssl_option_s {
 
 typedef struct lsec_ssl_option_s lsec_ssl_option_t;
 
-LSEC_API lsec_ssl_option_t* lsec_get_ssl_options();
+LSEC_API lsec_ssl_option_t* lsec_get_ssl_options(void);
 
 #endif

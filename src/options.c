@@ -179,7 +179,7 @@ static lsec_ssl_option_t ssl_options[] = {
   {NULL, 0L}
 };
 
-LSEC_API lsec_ssl_option_t* lsec_get_ssl_options() {
+LSEC_API lsec_ssl_option_t* lsec_get_ssl_options(void) {
   return ssl_options;
 }
 

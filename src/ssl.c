@@ -42,7 +42,7 @@
 /**
  * Underline socket error.
  */
-static int lsec_socket_error()
+static int lsec_socket_error(void)
 {
 #if defined(WIN32)
   return WSAGetLastError();
