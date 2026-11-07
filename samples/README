@@ -48,6 +48,10 @@ Directories:
 * psk
  PSK(Pre Shared Key) support.
 
+* send-after-fatal
+ Regression for send()/receive()/close() after a fatal TLS error
+ (peer gone without close_notify); see its README.
+
 * sni
  Support to SNI (Server Name Indication).
 
