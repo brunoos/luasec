@@ -47,11 +47,12 @@ static int lsec_socket_error(void)
 #if defined(WIN32)
   return WSAGetLastError();
 #else
-#if defined(LSEC_OPENSSL_ERRNO_BUG)
-  // Bug in OpenSSL
+  /* OpenSSL reports SSL_ERROR_SYSCALL with errno == 0 in some situations,
+   * e.g. when I/O is attempted on a connection that already failed.
+   * errno == 0 is IO_DONE for LuaSocket and would be taken as a successful
+   * zero-byte transfer, so report it as a (terminal) SSL error instead. */
   if (errno == 0)
     return LSEC_IO_SSL;
-#endif
   return errno;
 #endif
 }

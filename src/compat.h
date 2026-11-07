@@ -48,12 +48,6 @@
 
 //------------------------------------------------------------------------------
 
-#if !defined(LIBRESSL_VERSION_NUMBER) && ((OPENSSL_VERSION_NUMBER & 0xFFFFF000L) == 0x10101000L || (OPENSSL_VERSION_NUMBER & 0xFFFFF000L) == 0x30000000L)
-#define LSEC_OPENSSL_ERRNO_BUG
-#endif
-
-//------------------------------------------------------------------------------
-
 #if !defined(LIBRESSL_VERSION_NUMBER) && !defined(OPENSSL_NO_PSK)
 #define LSEC_ENABLE_PSK
 #endif
