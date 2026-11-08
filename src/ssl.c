@@ -47,13 +47,46 @@ static int lsec_socket_error(void)
 #if defined(WIN32)
   return WSAGetLastError();
 #else
-#if defined(LSEC_OPENSSL_ERRNO_BUG)
-  // Bug in OpenSSL
+  /* OpenSSL reports SSL_ERROR_SYSCALL with errno == 0 in some situations,
+   * e.g. when I/O is attempted on a connection that already failed.
+   * errno == 0 is IO_DONE for LuaSocket and would be taken as a successful
+   * zero-byte transfer, so report it as a (terminal) SSL error instead. */
   if (errno == 0)
     return LSEC_IO_SSL;
-#endif
   return errno;
 #endif
+}
+
+/**
+ * Remember the first fatal error.
+ * OpenSSL does not allow further I/O or SSL_shutdown() after SSL_ERROR_SSL
+ * or SSL_ERROR_SYSCALL, and does not report the original error again.
+ */
+static int lsec_fatal(p_ssl ssl, int err)
+{
+  if (!ssl->fatal) {
+    ssl->fatal = 1;
+    ssl->fatal_io = err;
+    ssl->fatal_error = ssl->error;
+    ssl->fatal_reason = ERR_peek_error();
+  }
+  return err;
+}
+
+/**
+ * Error string for an OpenSSL error code.
+ */
+static const char *lsec_ssl_strerror(unsigned long e)
+{
+  const char *msg;
+#if defined(ERR_SYSTEM_ERROR)
+  /* OpenSSL 3 queues system errors; ERR_reason_error_string() has no string
+   * for them and returns NULL. */
+  if (ERR_SYSTEM_ERROR(e))
+    return socket_strerror(ERR_GET_REASON(e));
+#endif
+  msg = ERR_reason_error_string(e);
+  return msg ? msg : "Unknown SSL error";
 }
 
 /**
@@ -72,7 +105,8 @@ static const char *ssl_ioerror(void *ctx, int err)
     case SSL_ERROR_WANT_ACCEPT: return "'accept' not completed";
     case SSL_ERROR_WANT_X509_LOOKUP: return "Waiting for callback";
     case SSL_ERROR_SYSCALL: return "System error";
-    case SSL_ERROR_SSL: return ERR_reason_error_string(ERR_get_error());
+    case SSL_ERROR_SSL:
+      return lsec_ssl_strerror(ssl->fatal ? ssl->fatal_reason : ERR_get_error());
     default: return "Unknown SSL error";
     }
   }
@@ -85,7 +119,8 @@ static const char *ssl_ioerror(void *ctx, int err)
 static int meth_destroy(lua_State *L)
 {
   p_ssl ssl = (p_ssl)luaL_checkudata(L, 1, "SSL:Connection");
-  if (ssl->state == LSEC_STATE_CONNECTED) {
+  /* No SSL_shutdown() after a fatal error: OpenSSL forbids it */
+  if (ssl->state == LSEC_STATE_CONNECTED && !ssl->fatal) {
     socket_setblocking(&ssl->sock);
     SSL_shutdown(ssl->ssl);
   }
@@ -119,6 +154,10 @@ static int handshake(p_ssl ssl)
   p_timeout tm = timeout_markstart(&ssl->tm);
   if (ssl->state == LSEC_STATE_CLOSED)
     return IO_CLOSED;
+  if (ssl->fatal) {
+    ssl->error = ssl->fatal_error;
+    return ssl->fatal_io;
+  }
   for ( ; ; ) {
     ERR_clear_error();
     err = SSL_do_handshake(ssl->ssl);
@@ -140,11 +179,13 @@ static int handshake(p_ssl ssl)
     case SSL_ERROR_SYSCALL:
       if (ERR_peek_error())  {
         ssl->error = SSL_ERROR_SSL;
-        return LSEC_IO_SSL;
+        return lsec_fatal(ssl, LSEC_IO_SSL);
       }
       if (err == 0)
-        return IO_CLOSED;
-      return lsec_socket_error();
+        return lsec_fatal(ssl, IO_CLOSED);
+      return lsec_fatal(ssl, lsec_socket_error());
+    case SSL_ERROR_SSL:
+      return lsec_fatal(ssl, LSEC_IO_SSL);
     default:
       return LSEC_IO_SSL;
     }
@@ -163,6 +204,10 @@ static int ssl_send(void *ctx, const char *data, size_t count, size_t *sent,
   if (ssl->state != LSEC_STATE_CONNECTED)
     return IO_CLOSED;
   *sent = 0;
+  if (ssl->fatal) {
+    ssl->error = ssl->fatal_error;
+    return ssl->fatal_io;
+  }
   for ( ; ; ) {
     ERR_clear_error();
     err = SSL_write(ssl->ssl, data, (int)count);
@@ -184,11 +229,13 @@ static int ssl_send(void *ctx, const char *data, size_t count, size_t *sent,
     case SSL_ERROR_SYSCALL:
       if (ERR_peek_error())  {
         ssl->error = SSL_ERROR_SSL;
-        return LSEC_IO_SSL;
+        return lsec_fatal(ssl, LSEC_IO_SSL);
       }
       if (err == 0)
-        return IO_CLOSED;
-      return lsec_socket_error();
+        return lsec_fatal(ssl, IO_CLOSED);
+      return lsec_fatal(ssl, lsec_socket_error());
+    case SSL_ERROR_SSL:
+      return lsec_fatal(ssl, LSEC_IO_SSL);
     default:
       return LSEC_IO_SSL;
     }
@@ -207,6 +254,10 @@ static int ssl_recv(void *ctx, char *data, size_t count, size_t *got,
   *got = 0;
   if (ssl->state != LSEC_STATE_CONNECTED)
     return IO_CLOSED;
+  if (ssl->fatal) {
+    ssl->error = ssl->fatal_error;
+    return ssl->fatal_io;
+  }
   for ( ; ; ) {
     ERR_clear_error();
     err = SSL_read(ssl->ssl, data, (int)count);
@@ -230,11 +281,13 @@ static int ssl_recv(void *ctx, char *data, size_t count, size_t *got,
     case SSL_ERROR_SYSCALL:
       if (ERR_peek_error())  {
         ssl->error = SSL_ERROR_SSL;
-        return LSEC_IO_SSL;
+        return lsec_fatal(ssl, LSEC_IO_SSL);
       }
       if (err == 0)
-        return IO_CLOSED;
-      return lsec_socket_error();
+        return lsec_fatal(ssl, IO_CLOSED);
+      return lsec_fatal(ssl, lsec_socket_error());
+    case SSL_ERROR_SSL:
+      return lsec_fatal(ssl, LSEC_IO_SSL);
     default:
       return LSEC_IO_SSL;
     }
@@ -304,6 +357,7 @@ static int meth_create(lua_State *L)
     return luaL_argerror(L, 1, "invalid context");
   }
   ssl->state = LSEC_STATE_NEW;
+  ssl->fatal = 0;
   SSL_set_fd(ssl->ssl, (int)SOCKET_INVALID);
   SSL_set_mode(ssl->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE | 
     SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);

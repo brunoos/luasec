@@ -33,6 +33,11 @@ typedef struct t_ssl_ {
   SSL *ssl;
   int state;
   int error;
+  /* First fatal result, kept so later calls report it without touching OpenSSL */
+  int fatal;
+  int fatal_io;
+  int fatal_error;
+  unsigned long fatal_reason;
 } t_ssl;
 typedef t_ssl* p_ssl;
 
