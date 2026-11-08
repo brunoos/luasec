@@ -29,7 +29,6 @@ local _M = {
 local cfg = {
   protocol = "any",
   options  = {"all", "no_sslv2", "no_sslv3", "no_tlsv1"},
-  verify   = "none",
 }
 
 --------------------------------------------------------------------
@@ -77,6 +76,14 @@ local function tcp(params)
    for k, v in pairs(cfg) do 
       params[k] = params[k] or v
    end
+
+   if not params.verify then
+      if not params.cafile then
+         params.cafile = ssl.get_system_ca() or nil
+      end
+      params.verify = params.cafile and "peer" or "none"
+   end
+
    -- Force client mode
    params.mode = "client"
    -- 'create' function for LuaSocket
